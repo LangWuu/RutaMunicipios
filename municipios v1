@@ -1,0 +1,384 @@
+from collections import defaultdict
+import heapq
+from math import radians, sin, cos, sqrt, atan2
+import folium
+from folium import plugins
+
+# Coordenadas de los municipios
+municipios = {
+    "Bogotá": (4.316107698, -74.1810727),
+    "Villavicencio": (4.09166877, -73.49291595),
+    "Tunja": (5.518472615, -73.37801856),
+    "Ibagué": (4.451921427, -75.252591),
+    "Manizales": (5.08343301, -75.50727881),
+    "Armenia": (4.499501128, -75.72489985),
+    "Pereira": (4.803662773, -75.79579093),
+    "Yopal": (5.242744761, -72.25802857),
+    "Neiva": (2.993360046, -75.27236232),
+    "Medellín": (6.257590259, -75.61103107),
+    "Barrancabermeja": (7.054074558, -73.78211646),
+    "Bucaramanga": (7.155833544, -73.11156997),
+    "Cali": (3.399043723, -76.57649259),
+    "Quibdó": (5.7543229, -76.65015147),
+    "Buenaventura": (3.493340766, -77.11872832),
+    "Popayán": (2.471704362, -76.59194419),
+    "Florencia": (1.69453474, -77.08735723),
+    "Cúcuta": (8.112041811, -72.48862641),
+    "Montería": (8.584698016, -75.95055079),
+    "Mompox": (9.142512064, -74.54519906),
+    "Pasto": (1.083605497, -77.20610074),
+    "Sincelejo": (9.316673928, -75.43174967),
+    "Tumaco": (1.574550638, -78.61540963),
+    "Cartagena": (10.46343362, -75.45889915),
+    "Barranquilla": (10.98152051, -74.82771544),
+    "Santa Marta": (11.12189436, -73.88527855),
+    "Riohacha": (11.24297214, -72.95876315),
+    "Leticia": (-3.530058784, -70.04513691)
+    
+}
+
+# Distancias directas a Bogotá
+distancias_bogota = {
+    "Bogotá": 0,
+    "Villavicencio": 76.12,
+    "Tunja": 126.14,
+    "Ibagué": 129.53,
+    "Manizales": 165.46,
+    "Armenia": 177.56,
+    "Pereira": 179.58,
+    "Yopal": 201.86,
+    "Neiva": 233.44,
+    "Medellín": 241.76,
+    "Barrancabermeja": 269.43,
+    "Bucaramanga": 294.86,
+    "Cali": 301.57,
+    "Quibdó": 306.90,
+    "Buenaventura": 339.35,
+    "Popayán": 373.43,
+    "Florencia": 377.80,
+    "Cúcuta": 400.56,
+    "Montería": 497.79,
+    "Mompox": 501.52,
+    "Pasto": 521.83,
+    "Sincelejo": 537.20,
+    "Tumaco": 608.93,
+    "Cartagena": 658.97,
+    "Barranquilla": 706.45,
+    "Santa Marta": 732.96,
+    "Riohacha": 777.18,
+    "Leticia": 1088.21
+}
+
+# Función para crear conexiones
+def crear_conexiones(municipios, num_conexiones=3):
+    conexiones = []
+    for origen, coord_origen in municipios.items():
+        distancias = [(destino, distancia_haversine(coord_origen, coord_destino))
+                      for destino, coord_destino in municipios.items() if destino != origen]
+        distancias.sort(key=lambda x: x[1])
+        for destino, distancia in distancias[:num_conexiones]:
+            conexiones.append((origen, destino, distancia))
+    return conexiones
+def distancia_haversine(coord1, coord2):
+    R = 6371  # Radio de la Tierra en km
+    lat1, lon1 = coord1
+    lat2, lon2 = coord2
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    return R * c
+def crear_grafo(conexiones):
+    grafo = defaultdict(dict)
+    for origen, destino, distancia in conexiones:
+        grafo[origen][destino] = distancia
+        grafo[destino][origen] = distancia
+    return grafo
+
+def busqueda_voraz(grafo, inicio, fin):
+    actual = inicio
+    camino = [actual]
+    costo_total = 0
+    visitados = set([actual])
+    
+    while actual != fin:
+        if actual not in grafo:
+            return None, float('inf')
+        
+        # Encuentra el vecino más cercano no visitado
+        vecino_mas_cercano = None
+        distancia_minima = float('inf')
+        for vecino, distancia in grafo[actual].items():
+            if vecino not in visitados and distancia < distancia_minima:
+                vecino_mas_cercano = vecino
+                distancia_minima = distancia
+        
+        if vecino_mas_cercano is None:
+            # No hay camino al destino
+            return None, float('inf')
+        
+        costo_total += distancia_minima
+        camino.append(vecino_mas_cercano)
+        visitados.add(vecino_mas_cercano)
+        actual = vecino_mas_cercano
+    
+    return camino, costo_total
+
+def a_estrella(grafo, inicio, fin):
+    def heuristica(nodo):
+        return distancia_haversine(municipios[nodo], municipios[fin])
+
+    frontera = [(0, inicio)]
+    vino_de = {}
+    costo_g = {inicio: 0}
+
+    while frontera:
+        _, actual = heapq.heappop(frontera)
+
+        if actual == fin:
+            camino = []
+            while actual in vino_de:
+                camino.append(actual)
+                actual = vino_de[actual]
+            camino.append(inicio)
+            return list(reversed(camino)), costo_g[fin]
+
+        for vecino, distancia in grafo[actual].items():
+            nuevo_costo = costo_g[actual] + distancia
+            if vecino not in costo_g or nuevo_costo < costo_g[vecino]:
+                costo_g[vecino] = nuevo_costo
+                prioridad = nuevo_costo + heuristica(vecino)
+                heapq.heappush(frontera, (prioridad, vecino))
+                vino_de[vecino] = actual
+
+    return None, float('inf')
+
+def bellman_ford(grafo, inicio, fin):
+    distancias = {municipio: float('inf') for municipio in grafo}
+    distancias[inicio] = 0
+    vino_de = {}
+
+    for _ in range(len(grafo) - 1):
+        for municipio in grafo:
+            for vecino, peso in grafo[municipio].items():
+                if distancias[municipio] + peso < distancias[vecino]:
+                    distancias[vecino] = distancias[municipio] + peso
+                    vino_de[vecino] = municipio
+
+    # Verificar ciclos negativos
+    for municipio in grafo:
+        for vecino, peso in grafo[municipio].items():
+            if distancias[municipio] + peso < distancias[vecino]:
+                print("El grafo contiene un ciclo de peso negativo")
+                return None, float('inf')
+
+    # Reconstruir el camino
+    if fin not in vino_de and inicio != fin:
+        return None, float('inf')
+
+    camino = []
+    actual = fin
+    while actual != inicio:
+        camino.append(actual)
+        actual = vino_de[actual]
+    camino.append(inicio)
+    
+    return list(reversed(camino)), distancias[fin]
+
+def dijkstra(grafo, inicio, fin):
+    distancias = {municipio: float('inf') for municipio in grafo}
+    distancias[inicio] = 0
+    vino_de = {}
+    cola = [(0, inicio)]
+
+    while cola:
+        distancia_actual, municipio_actual = heapq.heappop(cola)
+
+        if municipio_actual == fin:
+            camino = []
+            while municipio_actual in vino_de:
+                camino.append(municipio_actual)
+                municipio_actual = vino_de[municipio_actual]
+            camino.append(inicio)
+            return list(reversed(camino)), distancias[fin]
+
+        if distancia_actual > distancias[municipio_actual]:
+            continue
+
+        for vecino, peso in grafo[municipio_actual].items():
+            distancia = distancia_actual + peso
+            if distancia < distancias[vecino]:
+                distancias[vecino] = distancia
+                vino_de[vecino] = municipio_actual
+                heapq.heappush(cola, (distancia, vecino))
+
+    return None, float('inf')
+def kruskal(grafo):
+    def find(parent, i):
+        if parent[i] == i:
+            return i
+        return find(parent, parent[i])
+
+    def union(parent, rank, x, y):
+        xroot = find(parent, x)
+        yroot = find(parent, y)
+        if rank[xroot] < rank[yroot]:
+            parent[xroot] = yroot
+        elif rank[xroot] > rank[yroot]:
+            parent[yroot] = xroot
+        else:
+            parent[yroot] = xroot
+            rank[xroot] += 1
+
+    aristas = []
+    for u in grafo:
+        for v, peso in grafo[u].items():
+            aristas.append((u, v, peso))
+    
+    aristas.sort(key=lambda x: x[2])
+    
+    vertices = list(grafo.keys())
+    parent = {v: v for v in vertices}
+    rank = {v: 0 for v in vertices}
+    
+    arbol_expansion_minima = []
+    
+    for u, v, peso in aristas:
+        x = find(parent, u)
+        y = find(parent, v)
+        if x != y:
+            arbol_expansion_minima.append((u, v, peso))
+            union(parent, rank, x, y)
+    
+    return arbol_expansion_minima
+
+def prim(grafo):
+    vertices = list(grafo.keys())
+    inicio = vertices[0]
+    visitados = set([inicio])
+    aristas = [(peso, inicio, v) for v, peso in grafo[inicio].items()]
+    heapq.heapify(aristas)
+    arbol_expansion_minima = []
+
+    while aristas:
+        peso, u, v = heapq.heappop(aristas)
+        if v not in visitados:
+            visitados.add(v)
+            arbol_expansion_minima.append((u, v, peso))
+            for siguiente, peso in grafo[v].items():
+                if siguiente not in visitados:
+                    heapq.heappush(aristas, (peso, v, siguiente))
+
+    return arbol_expansion_minima
+
+def crear_mapa(municipios, conexiones, rutas, arbol_expansion_minima):
+    mapa = folium.Map(location=[4.570868, -74.297333], zoom_start=6)
+
+    for municipio, coords in municipios.items():
+        folium.Marker(
+            coords,
+            popup=municipio,
+            icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(mapa)
+
+    for origen, destino, _ in conexiones:
+        folium.PolyLine(
+            locations=[municipios[origen], municipios[destino]],
+            color="gray",
+            weight=2,
+            opacity=0.5
+        ).add_to(mapa)
+
+    colores = {
+        'Búsqueda Voraz': 'red',
+        'A*': 'blue',
+        'Bellman-Ford': 'green',
+        'Dijkstra': 'purple',
+        'Árbol de Expansión Mínima': 'orange'
+    }
+
+    for nombre, (ruta, _) in rutas.items():
+        if ruta:
+            coordenadas_ruta = [municipios[municipio] for municipio in ruta]
+            folium.PolyLine(
+                coordenadas_ruta,
+                color=colores[nombre],
+                weight=4,
+                opacity=0.8,
+                popup=nombre
+            ).add_to(mapa)
+
+    for u, v, _ in arbol_expansion_minima:
+        folium.PolyLine(
+            [municipios[u], municipios[v]],
+            color=colores['Árbol de Expansión Mínima'],
+            weight=4,
+            opacity=0.8,
+            popup='Árbol de Expansión Mínima'
+        ).add_to(mapa)
+
+    folium.Marker(
+        municipios[ruta[0]],
+        popup="Inicio: Bogotá",
+        icon=folium.Icon(color='green', icon='play')
+    ).add_to(mapa)
+    folium.Marker(
+        municipios[ruta[-1]],
+        popup=f"Fin: {ruta[-1]}",
+        icon=folium.Icon(color='red', icon='stop')
+    ).add_to(mapa)
+
+    minimap = plugins.MiniMap()
+    mapa.add_child(minimap)
+    folium.LayerControl().add_to(mapa)
+    mapa.save("mapa_colombia.html")
+
+def main():
+    conexiones = crear_conexiones(municipios)
+    grafo = crear_grafo(conexiones)
+    origen = "Bogotá"  
+    destino = input("Ingrese el municipio de destino: ")
+    
+    if destino not in municipios:
+        print("Municipio no encontrado. Por favor, verifique el nombre.")
+        return
+    
+    print(f"\nCalculando rutas desde Bogotá hasta {destino}:")
+    
+    rutas = {
+        'Búsqueda Voraz': busqueda_voraz(grafo, origen, destino),
+        'A*': a_estrella(grafo, origen, destino),
+        'Bellman-Ford': bellman_ford(grafo, origen, destino),
+        'Dijkstra': dijkstra(grafo, origen, destino)
+    }
+    
+    ruta_mas_rapida = min(rutas.items(), key=lambda x: x[1][1])
+    
+    for nombre, (ruta, costo) in rutas.items():
+        if ruta:
+            print(f"\n{nombre}:")
+            print(f"Ruta: {' -> '.join(ruta)}")
+            print(f"Distancia total: {costo:.2f} km")
+        else:
+            print(f"\n{nombre}: No se encontró una ruta.")
+    
+    print(f"\nLa ruta más rápida es {ruta_mas_rapida[0]} con una distancia de {ruta_mas_rapida[1][1]:.2f} km")
+    
+    print("\nCalculando el Árbol de Expansión Mínima:")
+    arbol_expansion_minima_kruskal = kruskal(grafo)
+    arbol_expansion_minima_prim = prim(grafo)
+    
+    print("\nÁrbol de Expansión Mínima (Kruskal):")
+    for u, v, peso in arbol_expansion_minima_kruskal:
+        print(f"{u} - {v}: {peso:.2f} km")
+    
+    print("\nÁrbol de Expansión Mínima (Prim):")
+    for u, v, peso in arbol_expansion_minima_prim:
+        print(f"{u} - {v}: {peso:.2f} km")
+    
+    crear_mapa(municipios, conexiones, rutas, arbol_expansion_minima_kruskal)
+    print("\nSe ha creado un mapa con todas las rutas y el Árbol de Expansión Mínima en el archivo 'mapa_colombia.html'")
+
+if __name__ == "__main__":
+    main()
